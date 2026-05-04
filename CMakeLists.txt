@@ -19,13 +19,15 @@ endif()
 
 message(STATUS "logos-cpp-sdk : ${LOGOS_CPP_SDK_ROOT}")
 
-include_directories(
-    ${LOGOS_CPP_SDK_ROOT}/include
-    ${LOGOS_CPP_SDK_ROOT}/include/cpp
-    ${LOGOS_CPP_SDK_ROOT}/include/core
-)
-
-link_directories(${LOGOS_CPP_SDK_ROOT}/lib)
+# Link SDK via its exported CMake target so the consumer inherits
+# INTERFACE_INCLUDE_DIRECTORIES + INTERFACE_LINK_LIBRARIES (OpenSSL,
+# Boost::system, nlohmann_json). Bare `link_directories(...) +
+# -llogos_sdk` only put liblogos_sdk.a on the link line — Boost.Asio
+# TLS symbols (X509_check_host, SSL_*, ...) ended up undefined on
+# Linux.
+find_package(logos-cpp-sdk REQUIRED CONFIG
+    PATHS ${LOGOS_CPP_SDK_ROOT}/lib/cmake/logos-cpp-sdk
+    NO_DEFAULT_PATH)
 
 # ── Static library: LogosQmlBridge + ViewModuleHost ─────────────────────────
 add_library(logos_view_module_runtime STATIC
@@ -46,7 +48,7 @@ target_link_libraries(logos_view_module_runtime PUBLIC
     Qt6::Core
     Qt6::RemoteObjects
     Qt6::Qml
-    logos_sdk
+    logos-cpp-sdk::logos_sdk
 )
 
 set_target_properties(logos_view_module_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -61,7 +63,7 @@ target_include_directories(ui-host PRIVATE
 target_link_libraries(ui-host PRIVATE
     Qt6::Core
     Qt6::RemoteObjects
-    logos_sdk
+    logos-cpp-sdk::logos_sdk
 )
 
 set_target_properties(ui-host PROPERTIES
