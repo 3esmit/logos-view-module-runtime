@@ -25,15 +25,12 @@ pkgs.stdenv.mkDerivation {
   preConfigure = ''
     export MACOSX_DEPLOYMENT_TARGET=12.0
 
-    mkdir -p logos-cpp-sdk/include/cpp logos-cpp-sdk/include/core logos-cpp-sdk/lib
-    cp -r ${logosSdk}/include/cpp/* logos-cpp-sdk/include/cpp/
-    cp -r ${logosSdk}/include/core/* logos-cpp-sdk/include/core/
-    for ext in dylib so a; do
-      f="${logosSdk}/lib/liblogos_sdk.$ext"
-      [ -f "$f" ] && cp "$f" logos-cpp-sdk/lib/
-    done
-
-    cmakeFlagsArray+=("-DLOGOS_CPP_SDK_ROOT=$PWD/logos-cpp-sdk")
+    # Point CMake at the SDK store path directly. CMakeLists.txt
+    # uses `find_package(logos-cpp-sdk CONFIG PATHS
+    # $LOGOS_CPP_SDK_ROOT/lib/cmake/logos-cpp-sdk)`, which carries
+    # include dirs + the link interface (OpenSSL, Boost, nlohmann)
+    # via the imported target — no need to stage a vendored copy.
+    cmakeFlagsArray+=("-DLOGOS_CPP_SDK_ROOT=${logosSdk}")
   '';
 
   cmakeFlags = [
