@@ -10,6 +10,7 @@
 
 #include <QCoreApplication>
 #include <QCommandLineParser>
+#include <QLocalSocket>
 #include <QPluginLoader>
 #include <QRemoteObjectHost>
 #include <QAbstractItemModel>
@@ -18,6 +19,7 @@
 #include <QDebug>
 
 #include "logos_api.h"
+#include "token_manager.h"
 #include "LogosViewPlugin.h"
 
 int main(int argc, char* argv[])
@@ -52,6 +54,29 @@ int main(int argc, char* argv[])
     const QString pluginPath = parser.value(pathOpt);
     const QString socketName = parser.value(socketOpt);
 
+    // Receive the per-spawn auth token from the parent (ViewModuleHost)
+    QString authToken;
+    {
+        QLocalSocket client;
+        client.connectToServer(socketName + QStringLiteral("_token"));
+        if (!client.waitForConnected(10000)) {
+            qCritical() << "ui-host: failed to connect to parent token socket for"
+                        << moduleName << ":" << client.errorString();
+            return 1;
+        }
+        if (!client.waitForReadyRead(5000)) {
+            qCritical() << "ui-host: timeout waiting for auth token from parent for"
+                        << moduleName;
+            return 1;
+        }
+        authToken = QString::fromUtf8(client.readAll());
+        client.disconnectFromServer();
+    }
+    if (authToken.isEmpty()) {
+        qCritical() << "ui-host: parent sent empty auth token for" << moduleName;
+        return 1;
+    }
+
     QPluginLoader loader(pluginPath);
     if (!loader.load()) {
         qCritical() << "Failed to load plugin:" << loader.errorString();
@@ -68,6 +93,10 @@ int main(int argc, char* argv[])
 
     LogosAPI* logosAPI = new LogosAPI(moduleName);
     logosAPI->setParent(&app);
+
+    logosAPI->getTokenManager()->saveToken(QStringLiteral("core"), authToken);
+    logosAPI->getTokenManager()->saveToken(QStringLiteral("capability_module"), authToken);
+
     int methodIndex = pluginObject->metaObject()->indexOfMethod("initLogos(LogosAPI*)");
     if (methodIndex != -1) {
         QMetaObject::invokeMethod(pluginObject, "initLogos",
@@ -110,7 +139,7 @@ int main(int argc, char* argv[])
             return 1;
         }
     }
-    qDebug() << "ui-host: remoting enabled on" << socketName << "as" << moduleName;
+    qDebug() << "ui-host: remoting enabled for" << moduleName;
 
     // Gap 2: scan the remote target for Q_PROPERTYs whose value is a
     // QAbstractItemModel* and remote each as a child source named
