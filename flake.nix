@@ -8,28 +8,42 @@
       url = "github:logos-co/logos-cpp-sdk";
       inputs.logos-nix.follows = "logos-nix";
     };
+    logos-protocol = {
+      url = "github:logos-co/logos-protocol";
+      inputs.logos-nix.follows = "logos-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    logos-qt-sdk = {
+      url = "github:logos-co/logos-qt-sdk";
+      inputs.logos-nix.follows = "logos-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.logos-protocol.follows = "logos-protocol";
+      inputs.logos-cpp-sdk.follows = "logos-cpp-sdk";
+    };
   };
 
-  outputs = { self, nixpkgs, logos-nix, logos-cpp-sdk }:
+  outputs = { self, nixpkgs, logos-nix, logos-cpp-sdk, logos-protocol, logos-qt-sdk }:
     let
       systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f {
         inherit system;
         pkgs = import nixpkgs { inherit system; };
         logosSdk = logos-cpp-sdk.packages.${system}.default;
+        logosQtSdk = logos-qt-sdk.packages.${system}.default;
+        logosProtocol = logos-protocol.packages.${system}.default;
       });
     in
     {
-      packages = forAllSystems ({ pkgs, logosSdk, ... }: {
-        default = import ./nix/default.nix { inherit pkgs logosSdk; };
-        tests = import ./nix/test.nix { inherit pkgs logosSdk; };
+      packages = forAllSystems ({ pkgs, logosSdk, logosQtSdk, logosProtocol, ... }: {
+        default = import ./nix/default.nix { inherit pkgs logosSdk logosQtSdk logosProtocol; };
+        tests = import ./nix/test.nix { inherit pkgs logosSdk logosQtSdk logosProtocol; };
       });
 
-      checks = forAllSystems ({ pkgs, logosSdk, ... }: {
-        default = import ./nix/test.nix { inherit pkgs logosSdk; };
+      checks = forAllSystems ({ pkgs, logosSdk, logosQtSdk, logosProtocol, ... }: {
+        default = import ./nix/test.nix { inherit pkgs logosSdk logosQtSdk logosProtocol; };
       });
 
-      devShells = forAllSystems ({ pkgs, logosSdk, ... }: {
+      devShells = forAllSystems ({ pkgs, logosSdk, logosQtSdk, logosProtocol, ... }: {
         default = pkgs.mkShell {
           nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
           buildInputs = [
@@ -39,6 +53,8 @@
           ];
           shellHook = ''
             export LOGOS_CPP_SDK_ROOT="${logosSdk}"
+            export LOGOS_QT_SDK_ROOT="${logosQtSdk}"
+            export LOGOS_PROTOCOL_ROOT="${logosProtocol}"
             echo "logos-view-module-runtime dev shell"
           '';
         };

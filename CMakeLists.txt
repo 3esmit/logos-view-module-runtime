@@ -16,15 +16,29 @@ endif()
 if(NOT DEFINED LOGOS_CPP_SDK_ROOT)
     message(FATAL_ERROR "LOGOS_CPP_SDK_ROOT must be defined")
 endif()
+if(NOT DEFINED LOGOS_QT_SDK_ROOT)
+    message(FATAL_ERROR "LOGOS_QT_SDK_ROOT must be defined")
+endif()
+if(NOT DEFINED LOGOS_PROTOCOL_ROOT)
+    message(FATAL_ERROR "LOGOS_PROTOCOL_ROOT must be defined")
+endif()
 
 message(STATUS "logos-cpp-sdk : ${LOGOS_CPP_SDK_ROOT}")
+message(STATUS "logos-qt-sdk  : ${LOGOS_QT_SDK_ROOT}")
+message(STATUS "logos-protocol: ${LOGOS_PROTOCOL_ROOT}")
 
-# Link SDK via its exported CMake target so the consumer inherits
+# Link the SDK stack via exported CMake targets so the consumer inherits
 # INTERFACE_INCLUDE_DIRECTORIES + INTERFACE_LINK_LIBRARIES (OpenSSL,
-# Boost::system, nlohmann_json). Bare `link_directories(...) +
-# -llogos_sdk` only put liblogos_sdk.a on the link line — Boost.Asio
-# TLS symbols (X509_check_host, SSL_*, ...) ended up undefined on
-# Linux.
+# Boost::system, nlohmann_json). Since the qt split the Qt developer layer
+# (LogosAPI, provider objects) lives in logos-qt-sdk, which carries the
+# logos-protocol library transitively; the Qt-free base SDK contributes
+# header-only types via logos-cpp-sdk::logos_headers.
+find_package(logos-protocol REQUIRED CONFIG
+    PATHS ${LOGOS_PROTOCOL_ROOT}/lib/cmake/logos-protocol
+    NO_DEFAULT_PATH)
+find_package(logos-qt-sdk REQUIRED CONFIG
+    PATHS ${LOGOS_QT_SDK_ROOT}/lib/cmake/logos-qt-sdk
+    NO_DEFAULT_PATH)
 find_package(logos-cpp-sdk REQUIRED CONFIG
     PATHS ${LOGOS_CPP_SDK_ROOT}/lib/cmake/logos-cpp-sdk
     NO_DEFAULT_PATH)
@@ -48,7 +62,8 @@ target_link_libraries(logos_view_module_runtime PUBLIC
     Qt6::Core
     Qt6::RemoteObjects
     Qt6::Qml
-    logos-cpp-sdk::logos_sdk
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
 )
 
 set_target_properties(logos_view_module_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -63,7 +78,8 @@ target_include_directories(ui-host PRIVATE
 target_link_libraries(ui-host PRIVATE
     Qt6::Core
     Qt6::RemoteObjects
-    logos-cpp-sdk::logos_sdk
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
 )
 
 set_target_properties(ui-host PROPERTIES
