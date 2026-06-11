@@ -8,7 +8,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 option(LOGOS_VIEW_RUNTIME_BUILD_TESTS "Build unit tests for logos-view-module-runtime" OFF)
 
-find_package(Qt6 REQUIRED COMPONENTS Core RemoteObjects Qml)
+find_package(Qt6 REQUIRED COMPONENTS Core Network RemoteObjects Qml)
 if(LOGOS_VIEW_RUNTIME_BUILD_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
 endif()
@@ -60,6 +60,7 @@ target_include_directories(logos_view_module_runtime PUBLIC
 
 target_link_libraries(logos_view_module_runtime PUBLIC
     Qt6::Core
+    Qt6::Network
     Qt6::RemoteObjects
     Qt6::Qml
     logos-qt-sdk::logos_qt_sdk
@@ -77,6 +78,7 @@ target_include_directories(ui-host PRIVATE
 
 target_link_libraries(ui-host PRIVATE
     Qt6::Core
+    Qt6::Network
     Qt6::RemoteObjects
     logos-qt-sdk::logos_qt_sdk
     logos-cpp-sdk::logos_headers
