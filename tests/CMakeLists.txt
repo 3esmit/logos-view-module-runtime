@@ -10,7 +10,8 @@ target_link_libraries(test_logos_qml_bridge PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos_sdk
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
 )
 
 add_test(NAME LogosQmlBridgeUnitTests COMMAND test_logos_qml_bridge)
