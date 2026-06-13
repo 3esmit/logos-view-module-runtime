@@ -1,4 +1,4 @@
-{ pkgs, logosSdk }:
+{ pkgs, logosSdk, logosQtSdk, logosProtocol }:
 
 pkgs.stdenv.mkDerivation {
   pname = "logos-view-module-runtime";
@@ -18,6 +18,8 @@ pkgs.stdenv.mkDerivation {
     pkgs.qt6.qtremoteobjects
     pkgs.qt6.qtdeclarative
     logosSdk
+    logosQtSdk
+    logosProtocol
   ];
 
   dontStrip = true;
@@ -31,6 +33,8 @@ pkgs.stdenv.mkDerivation {
     # include dirs + the link interface (OpenSSL, Boost, nlohmann)
     # via the imported target — no need to stage a vendored copy.
     cmakeFlagsArray+=("-DLOGOS_CPP_SDK_ROOT=${logosSdk}")
+    cmakeFlagsArray+=("-DLOGOS_QT_SDK_ROOT=${logosQtSdk}")
+    cmakeFlagsArray+=("-DLOGOS_PROTOCOL_ROOT=${logosProtocol}")
   '';
 
   cmakeFlags = [
