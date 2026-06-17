@@ -18,12 +18,52 @@
 #include <QTextStream>
 #include <QDebug>
 
+#include <cerrno>
+#include <csignal>
+#include <thread>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
 #include "logos_api.h"
 #include "token_manager.h"
 #include "LogosViewPlugin.h"
 
 int main(int argc, char* argv[])
 {
+#ifndef _WIN32
+    // Out-of-process view-module hosts are spawned by a parent (Basecamp, or any
+    // app embedding the view runtime). Mirror logos_host: (1) detach into our own
+    // session/process group so tearing the module tree down can't leak a signal
+    // into the parent's process group; (2) tie our lifetime to the parent so we
+    // never linger as an orphan if the parent *crashes* (it normally kills us
+    // explicitly). setsid() removes the controlling-terminal SIGHUP that used to
+    // reap orphans, so we replace it with PR_SET_PDEATHSIG (Linux) plus a
+    // portable getppid() watchdog. Compare against the parent's actual pid (not
+    // pid 1) so a parent that is itself PID 1 (a container) is handled correctly.
+    if (::setsid() == -1 && errno != EPERM) {
+        ::setpgid(0, 0);
+    }
+    {
+        const pid_t parent_pid = ::getppid();
+#ifdef __linux__
+        ::prctl(PR_SET_PDEATHSIG, SIGKILL);
+#endif
+        if (::getppid() != parent_pid) {
+            _exit(0);
+        }
+        std::thread([parent_pid] {
+            while (::getppid() == parent_pid) {
+                ::sleep(1);
+            }
+            _exit(0);
+        }).detach();
+    }
+#endif
+
     QCoreApplication app(argc, argv);
     app.setOrganizationName("Logos");
     app.setOrganizationDomain("logos.co");
