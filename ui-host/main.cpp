@@ -15,13 +15,16 @@
 #include <QRemoteObjectHost>
 #include <QAbstractItemModel>
 #include <QMetaProperty>
+#include <QSocketNotifier>
 #include <QTextStream>
 #include <QDebug>
 
 #include <cerrno>
 #include <csignal>
+#include <cstring>
 #include <thread>
 #ifndef _WIN32
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 #ifdef __linux__
@@ -68,6 +71,51 @@ int main(int argc, char* argv[])
     app.setOrganizationName("Logos");
     app.setOrganizationDomain("logos.co");
     app.setApplicationName("ui-host");
+
+    // Catch SIGTERM/SIGINT so the parent's QProcess::terminate() (and a
+    // user-issued Ctrl-C) unwinds app.exec() cleanly. Without this the
+    // default handler kills the process outright, skipping plugin
+    // destructors. SIGKILL stays uncatchable and remains the force-kill
+    // fallback in ViewModuleHost::stop().
+    //
+    // Self-pipe trick: the POSIX handler may only call async-signal-safe
+    // functions, and QCoreApplication::quit() is not (it grabs Qt-internal
+    // mutexes). Write a byte to a pipe from the handler — write(2) IS
+    // async-signal-safe — and let a QSocketNotifier on the main thread
+    // pick it up and call quit() from normal Qt context.
+#ifndef _WIN32
+    static int sigPipe[2] = {-1, -1};
+    if (::pipe(sigPipe) != 0) {
+        qWarning() << "ui-host: pipe() for signal handler failed:"
+                   << ::strerror(errno);
+    } else {
+        // Non-blocking read end so the drain loop in the notifier callback
+        // returns instead of blocking once the pipe is empty. The write end
+        // stays blocking (write of 1 byte never blocks in practice since
+        // the pipe buffer is 4 KiB+) so the handler stays trivial.
+        ::fcntl(sigPipe[0], F_SETFL, ::fcntl(sigPipe[0], F_GETFL, 0) | O_NONBLOCK);
+
+        auto* notifier = new QSocketNotifier(sigPipe[0], QSocketNotifier::Read, &app);
+        QObject::connect(notifier, &QSocketNotifier::activated, &app, [&app]() {
+            char buf[8];
+            while (::read(sigPipe[0], buf, sizeof(buf)) > 0) {}
+            qDebug() << "ui-host: received termination signal, quitting";
+            app.quit();
+        });
+
+        struct sigaction sa{};
+        sa.sa_handler = [](int) {
+            const char c = 1;
+            // Drop EINTR/EAGAIN silently — a missed wake-up just delays
+            // shutdown until the next signal or socket activity.
+            (void)::write(sigPipe[1], &c, 1);
+        };
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        ::sigaction(SIGTERM, &sa, nullptr);
+        ::sigaction(SIGINT,  &sa, nullptr);
+    }
+#endif
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Logos UI module host process");
@@ -207,5 +255,7 @@ int main(int argc, char* argv[])
     out << "READY" << Qt::endl;
     out.flush();
 
-    return app.exec();
+    const int rc = app.exec();
+    delete pluginObject;
+    return rc;
 }
