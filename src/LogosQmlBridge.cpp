@@ -20,7 +20,24 @@
 
 #include "logos_api.h"
 #include "logos_api_client.h"
+#include "logos_call_error.h"
 #include "logos_object.h"
+
+namespace {
+QString makeErrorPayload(const QString& error,
+                         const QString& module = QString(),
+                         const QString& method = QString(),
+                         const QString& detail = QString())
+{
+    QJsonObject obj;
+    obj.insert(QStringLiteral("error"), error);
+    if (!module.isEmpty()) obj.insert(QStringLiteral("module"), module);
+    if (!method.isEmpty()) obj.insert(QStringLiteral("method"), method);
+    if (!detail.isEmpty()) obj.insert(QStringLiteral("message"), detail);
+    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
+} // namespace
 
 LogosQmlBridge::LogosQmlBridge(LogosAPI* api, QObject* parent)
     : QObject(parent)
@@ -44,11 +61,18 @@ QString LogosQmlBridge::callModule(const QString& module,
 
     LogosAPIClient* client = m_logosAPI->getClient(module);
     if (!client || !client->isConnected())
-        return QStringLiteral("{\"error\":\"Module not connected\"}");
+        return makeErrorPayload(QStringLiteral("Module not connected"), module);
 
-    QVariant result = client->invokeRemoteMethod(module, method, args);
+    logos::CallError err;
+    QVariant result = client->invokeRemoteMethod(module, method, args,
+                                                 Timeout(), &err);
+    if (!err.ok()) {
+        return makeErrorPayload(QStringLiteral("Module source unavailable"),
+                                module, method,
+                                QString::fromStdString(err.message));
+    }
     if (!result.isValid())
-        return QStringLiteral("{\"error\":\"Invalid response\"}");
+        return makeErrorPayload(QStringLiteral("Invalid response"), module, method);
 
     return LogosQmlBridge::serializeResultForTesting(result);
 }
@@ -82,26 +106,34 @@ void LogosQmlBridge::callModuleAsync(const QString& module,
 
     LogosAPIClient* client = m_logosAPI->getClient(module);
     if (!client || !client->isConnected()) {
-        invokeCallback("{\"error\":\"Module not connected\"}");
+        invokeCallback(makeErrorPayload(QStringLiteral("Module not connected"), module));
         return;
     }
 
     if (timeoutMs > 0) {
         QTimer::singleShot(timeoutMs, this, [invokeCallback, module, method]() mutable {
-            invokeCallback(QStringLiteral("{\"error\":\"timeout\",\"module\":\"%1\",\"method\":\"%2\"}")
-                               .arg(module, method));
+            invokeCallback(makeErrorPayload(QStringLiteral("timeout"), module, method));
         });
     }
 
     client->invokeRemoteMethodAsync(
         module, method, args,
-        [this, invokeCallback](QVariant result) mutable {
-            if (!result.isValid()) {
-                invokeCallback("{\"error\":\"Invalid response\"}");
-                return;
-            }
-            invokeCallback(LogosQmlBridge::serializeResultForTesting(result));
-        });
+        LogosAPIClient::AsyncResultErrorCallback(
+            [invokeCallback, module, method](QVariant result, const logos::CallError& err) mutable {
+                if (!err.ok()) {
+                    invokeCallback(makeErrorPayload(
+                        QStringLiteral("Module source unavailable"),
+                        module, method,
+                        QString::fromStdString(err.message)));
+                    return;
+                }
+                if (!result.isValid()) {
+                    invokeCallback(makeErrorPayload(
+                        QStringLiteral("Invalid response"), module, method));
+                    return;
+                }
+                invokeCallback(LogosQmlBridge::serializeResultForTesting(result));
+            }));
 }
 
 void LogosQmlBridge::watch(const QVariant& pendingCall,
