@@ -8,7 +8,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 option(LOGOS_VIEW_RUNTIME_BUILD_TESTS "Build unit tests for logos-view-module-runtime" OFF)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Network RemoteObjects Qml)
+find_package(Qt6 REQUIRED COMPONENTS Core Network RemoteObjects Qml Gui Quick)
 if(LOGOS_VIEW_RUNTIME_BUILD_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
 endif()
