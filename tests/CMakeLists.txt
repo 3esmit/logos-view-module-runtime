@@ -15,3 +15,107 @@ target_link_libraries(test_logos_qml_bridge PRIVATE
 )
 
 add_test(NAME LogosQmlBridgeUnitTests COMMAND test_logos_qml_bridge)
+
+# End-to-end bridge test: real provider + LogosAPI + QJSEngine async chain.
+add_executable(test_logos_qml_bridge_e2e
+    test_logos_qml_bridge_e2e.cpp
+)
+
+target_link_libraries(test_logos_qml_bridge_e2e PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Test
+    Qt6::Qml
+    Qt6::RemoteObjects
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)
+
+add_test(NAME LogosQmlBridgeE2ETests COMMAND test_logos_qml_bridge_e2e)
+
+# GUI reproduction: the async chain inside a real QQuickView scene on a
+# QGuiApplication event loop (offscreen).
+add_executable(test_logos_qml_bridge_gui
+    test_logos_qml_bridge_gui.cpp
+)
+
+target_link_libraries(test_logos_qml_bridge_gui PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::Test
+    Qt6::RemoteObjects
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)
+
+add_test(NAME LogosQmlBridgeGuiTests COMMAND test_logos_qml_bridge_gui)
+
+# Regression guard for the QML-only `result`-type serialization bug (makeResult
+# -> null). serializeResultForTesting must emit the canonical {success,value,error}.
+add_executable(test_logos_qml_bridge_result
+    test_logos_qml_bridge_result.cpp
+)
+
+target_link_libraries(test_logos_qml_bridge_result PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Test
+    Qt6::Qml
+    Qt6::RemoteObjects
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)
+
+add_test(NAME LogosQmlBridgeResultTests COMMAND test_logos_qml_bridge_result)
+
+# Capability-handshake reproduction: un-pre-seeded target token + real
+# requestModule round-trip against a published capability_module provider.
+add_executable(test_logos_qml_bridge_handshake
+    test_logos_qml_bridge_handshake.cpp
+)
+
+target_link_libraries(test_logos_qml_bridge_handshake PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Test
+    Qt6::Qml
+    Qt6::RemoteObjects
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)
+
+add_test(NAME LogosQmlBridgeHandshakeTests COMMAND test_logos_qml_bridge_handshake)
+
+# ── 2-process reproduction (cross-process boundary) ─────────────────────────
+# Two standalone executables (driven manually, not via ctest): the modules host
+# publishes echo + capability in one process; the bridge driver runs the call
+# chains in another, so every call crosses the QtRO process boundary — the
+# QML-only topology basecamp actually uses.
+add_executable(test_2proc_modules_host test_2proc_modules_host.cpp)
+target_link_libraries(test_2proc_modules_host PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::RemoteObjects
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)
+
+add_executable(test_2proc_bridge_driver test_2proc_bridge_driver.cpp)
+target_link_libraries(test_2proc_bridge_driver PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Network
+    Qt6::Qml
+    Qt6::RemoteObjects
+    logos-qt-sdk::logos_qt_sdk
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)

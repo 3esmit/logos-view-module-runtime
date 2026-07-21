@@ -22,6 +22,7 @@
 #include "logos_api_client.h"
 #include "logos_call_error.h"
 #include "logos_object.h"
+#include "logos_json_convert.h"  // logos::qvariantToNlohmann (canonical result serialization)
 
 namespace {
 QString makeErrorPayload(const QString& error,
@@ -337,35 +338,15 @@ QString LogosQmlBridge::serializeResultForTesting(const QVariant& result)
 {
     if (!result.isValid()) return QStringLiteral("null");
 
-    QJsonValue jsonValue = QJsonValue::fromVariant(result);
-    if (jsonValue.isObject()) {
-        return QString::fromUtf8(QJsonDocument(jsonValue.toObject())
-                                     .toJson(QJsonDocument::Compact));
-    }
-    if (jsonValue.isArray()) {
-        return QString::fromUtf8(QJsonDocument(jsonValue.toArray())
-                                     .toJson(QJsonDocument::Compact));
-    }
-    if (!jsonValue.isUndefined()) {
-        QJsonDocument doc(QJsonArray{jsonValue});
-        QString wrapped = QString::fromUtf8(doc.toJson(QJsonDocument::Compact));
-        if (wrapped.size() >= 2 && wrapped.front() == '[' && wrapped.back() == ']') {
-            return wrapped.mid(1, wrapped.size() - 2);
-        }
-        return wrapped;
-    }
-
-    QJsonDocument doc = QJsonDocument::fromVariant(result);
-    if (!doc.isNull() && !doc.isEmpty()) {
-        return QString::fromUtf8(doc.toJson(QJsonDocument::Compact));
-    }
-
-    QJsonDocument docString(QJsonArray{QJsonValue(result.toString())});
-    QString wrapped = QString::fromUtf8(docString.toJson(QJsonDocument::Compact));
-    if (wrapped.size() >= 2 && wrapped.front() == '[' && wrapped.back() == ']') {
-        return wrapped.mid(1, wrapped.size() - 2);
-    }
-    return wrapped;
+    // Serialize with logos-protocol's canonical QVariant->JSON converter, the
+    // same one every transport (lp/std/cdylib) already uses, so ALL types
+    // round-trip to QML/JS identically: scalars as bare literals, containers
+    // preserved, integers kept as integers (not degraded to double), bytes in
+    // the tagged {"_bytes":...} form, and the custom LogosResult metatype as
+    // {success, value, error}. QJsonValue::fromVariant (used previously) could
+    // not convert a LogosResult — it silently degraded a `result`-type return
+    // to the literal "null" — and lost int64 precision.
+    return QString::fromStdString(logos::qvariantToNlohmann(result).dump());
 }
 
 QRemoteObjectNode* LogosQmlBridge::getOrCreateNode(const QString& moduleName)
