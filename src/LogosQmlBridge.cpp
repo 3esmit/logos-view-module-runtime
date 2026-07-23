@@ -217,7 +217,8 @@ QObject* LogosQmlBridge::module(const QString& moduleName)
     return replica;
 }
 
-QObject* LogosQmlBridge::model(const QString& moduleName, const QString& modelName)
+QObject* LogosQmlBridge::model(const QString& moduleName, const QString& modelName,
+                                bool prefetch)
 {
     const QString key = moduleName + QLatin1Char('/') + modelName;
     auto it = m_modelReplicas.constFind(key);
@@ -234,7 +235,9 @@ QObject* LogosQmlBridge::model(const QString& moduleName, const QString& modelNa
         return nullptr;
     }
 
-    QAbstractItemModelReplica* m = node->acquireModel(key);
+    const auto initialAction = prefetch ? QtRemoteObjects::PrefetchData
+                                        : QtRemoteObjects::FetchRootSize;
+    QAbstractItemModelReplica* m = node->acquireModel(key, initialAction);
     if (!m) {
         qWarning() << "LogosQmlBridge::model: acquireModel failed for" << key;
         return nullptr;
