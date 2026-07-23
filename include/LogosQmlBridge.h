@@ -67,8 +67,16 @@ public:
     // Returns a QAbstractItemModelReplica* for a QAbstractItemModel*
     // Q_PROPERTY on the view module. ui-host auto-remotes every such
     // property as "<module>/<propertyName>".
+    //
+    // prefetch=true acquires with QtRemoteObjects::PrefetchData, so the
+    // replica caches all roles for the initial rowCount before it reports
+    // populated — kills the "row exists but roles are still null" flash
+    // that FetchRootSize (the default) shows. Only safe for bounded /
+    // paged models; a raw source of 100k rows would fetch 100k *
+    // roles up front.
     Q_INVOKABLE QObject* model(const QString& moduleName,
-                               const QString& modelName);
+                               const QString& modelName,
+                               bool prefetch = false);
 
     // True once the view module's replica is Valid (source meta received).
     Q_INVOKABLE bool isViewModuleReady(const QString& moduleName) const;
