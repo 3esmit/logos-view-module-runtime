@@ -5,16 +5,16 @@
     logos-nix.url = "github:logos-co/logos-nix";
     nixpkgs.follows = "logos-nix/nixpkgs";
     logos-cpp-sdk = {
-      url = "github:logos-co/logos-cpp-sdk";
+      url = "github:3esmit/logos-cpp-sdk?rev=ec020bd06776a71b204406384db2b194001bc543";
       inputs.logos-nix.follows = "logos-nix";
     };
     logos-protocol = {
-      url = "github:logos-co/logos-protocol";
+      url = "github:3esmit/logos-protocol?rev=6086c922bf27ea53e073e92c997421c6e91baacd";
       inputs.logos-nix.follows = "logos-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     logos-qt-sdk = {
-      url = "github:logos-co/logos-qt-sdk";
+      url = "github:3esmit/logos-qt-sdk?rev=f6ba4309758755a0517eaed106d97df003cd9808";
       inputs.logos-nix.follows = "logos-nix";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.logos-protocol.follows = "logos-protocol";
