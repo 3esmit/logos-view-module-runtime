@@ -306,33 +306,110 @@ void LogosQmlBridge::notifyViewModuleCrashed(const QString& moduleName)
 
 bool LogosQmlBridge::onModuleEvent(const QString& moduleName, const QString& eventName)
 {
+    // This runs from Component.onCompleted, i.e. while the QML view is being
+    // built — which in Basecamp is immediately after PluginLoader has *spawned*
+    // the core dependency's host process, and well before that process has
+    // called listen(). It therefore must not ask "is the module connected?"
+    // and must not block waiting for a replica.
+    //
+    // It used to do both: `if (!client->isConnected()) return false;` followed
+    // by a blocking requestObject(). Once logos-protocol 1238316 made
+    // isConnected() truthful, that guard started refusing every subscription
+    // made at view-construction time, one shot, with nothing recorded and no
+    // retry — so QML events never arrived while method calls kept working
+    // (calls reach the replica by a path that never asks). Reverting 1238316 is
+    // not the answer; it removed ~417 s (macOS) / 361 s (Linux) of blocked GUI
+    // thread at startup. The subscription becomes deferrable instead.
     if (!m_logosAPI) {
         qWarning() << "LogosQmlBridge::onModuleEvent: LogosAPI not available";
         return false;
     }
-
-    LogosAPIClient* client = m_logosAPI->getClient(moduleName);
-    if (!client || !client->isConnected()) {
-        qWarning() << "LogosQmlBridge::onModuleEvent:" << moduleName << "not connected";
+    if (moduleName.isEmpty() || eventName.isEmpty()) {
+        qWarning() << "LogosQmlBridge::onModuleEvent: empty module or event name"
+                   << moduleName << eventName;
+        return false;
+    }
+    if (m_viewModuleSockets.contains(moduleName)) {
+        // A view module's signals come off its typed replica, not the IPC event
+        // channel; subscribing here would wait forever for something that never
+        // publishes on that name.
+        // One formatted string, not a stream of operands: QDebug quotes each
+        // QString it is given and separates operands with a space, which turns
+        // the QML snippet below into logos.module(" "chat_module" ") — the one
+        // part of this message a reader is meant to copy.
+        qWarning().noquote()
+            << QStringLiteral("LogosQmlBridge::onModuleEvent: %1 is a VIEW module -- "
+                              "use logos.module(\"%1\") and a Connections block for "
+                              "its signals").arg(moduleName);
         return false;
     }
 
-    LogosObject* obj = client->requestObject(moduleName);
-    if (!obj) {
-        qWarning() << "LogosQmlBridge::onModuleEvent: could not get object for" << moduleName;
+    LogosAPIClient* client = m_logosAPI->getClient(moduleName);
+    if (!client) {
+        qWarning() << "LogosQmlBridge::onModuleEvent: no client for" << moduleName;
         return false;
+    }
+
+    // Idempotent: QML may re-run Component.onCompleted. But CHECK the record
+    // against the registry rather than trusting it — a subscription this bridge
+    // believes is live may have been dropped underneath it, and short-circuiting
+    // on a stale record would turn a legitimate re-subscribe into a silent
+    // success that never arms. Unknown means the registry is not tracking that
+    // id at all, so fall through and subscribe again.
+    const QPair<QString, QString> key(moduleName, eventName);
+    auto known = m_eventSubscriptions.constFind(key);
+    if (known != m_eventSubscriptions.constEnd()) {
+        if (client->eventSubscriptionState(known.value()) != LogosSubscriptionState::Unknown)
+            return true;
+        qDebug() << "LogosQmlBridge::onModuleEvent: stale subscription record for"
+                 << moduleName << "::" << eventName << "-- re-subscribing";
+        m_eventSubscriptions.remove(key);
     }
 
     QPointer<LogosQmlBridge> self(this);
-    QString mod = moduleName;
-    client->onEvent(obj, eventName, [self, mod](const QString& event, const QVariantList& data) {
-        if (self) {
-            emit self->moduleEventReceived(mod, event, data);
-        }
-    });
+    const QString mod = moduleName;
+    // Non-blocking by construction: no isConnected() probe, no requestObject(),
+    // no nested event loop on this path. The subscription is armed by the
+    // transport when the module becomes reachable, and the layer below owns the
+    // diagnostics (warn once on deferral, log on arm, warn loudly if it ever
+    // becomes impossible).
+    const quint64 id = client->onEventWhenAvailable(
+        moduleName, eventName,
+        [self, mod](const QString& event, const QVariantList& data) {
+            if (self)
+                emit self->moduleEventReceived(mod, event, data);
+        },
+        [self, key](bool armed) {
+            // Abandoned subscriptions must not linger in the de-dupe set, or a
+            // later retry from QML would be swallowed as a duplicate.
+            if (self && !armed)
+                self->m_eventSubscriptions.remove(key);
+        });
+    if (!id) {
+        qWarning() << "LogosQmlBridge::onModuleEvent: subscription refused for"
+                   << moduleName << "::" << eventName;
+        return false;
+    }
+    m_eventSubscriptions.insert(key, id);
 
-    qDebug() << "LogosQmlBridge: subscribed to" << moduleName << "::" << eventName;
+    qDebug() << "LogosQmlBridge: subscription accepted for" << moduleName << "::" << eventName;
     return true;
+}
+
+QStringList LogosQmlBridge::pendingEventSubscriptions() const
+{
+    if (!m_logosAPI) return QStringList();
+    QStringList out;
+    QSet<QString> seen;
+    for (auto it = m_eventSubscriptions.keyBegin(), end = m_eventSubscriptions.keyEnd();
+         it != end; ++it) {
+        const QString& module = (*it).first;
+        if (seen.contains(module)) continue;
+        seen.insert(module);
+        if (LogosAPIClient* client = m_logosAPI->getClient(module))
+            out += client->pendingEventSubscriptions();
+    }
+    return out;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
