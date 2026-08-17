@@ -9,12 +9,12 @@
       inputs.logos-nix.follows = "logos-nix";
     };
     logos-protocol = {
-      url = "github:3esmit/logos-protocol?rev=6086c922bf27ea53e073e92c997421c6e91baacd";
+      url = "github:3esmit/logos-protocol?rev=719a473fedbd7fbabcf9d5485f96abaddf29c622";
       inputs.logos-nix.follows = "logos-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     logos-qt-sdk = {
-      url = "github:3esmit/logos-qt-sdk?rev=f6ba4309758755a0517eaed106d97df003cd9808";
+      url = "github:3esmit/logos-qt-sdk?rev=30302744a15097339fce7a6c1359ad9b40b2539e";
       inputs.logos-nix.follows = "logos-nix";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.logos-protocol.follows = "logos-protocol";
@@ -24,10 +24,11 @@
 
   outputs = { self, nixpkgs, logos-nix, logos-cpp-sdk, logos-protocol, logos-qt-sdk }:
     let
-      systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f {
-        inherit system;
-        pkgs = import nixpkgs { inherit system; };
+      # Adds the "x86_64-windows" pseudo-system. A cross derivation's `system`
+      # attr is its BUILD platform, so these evaluate anywhere and realise on
+      # x86_64-linux.
+      forAllSystems = f: logos-nix.lib.forAllTargets ({ system, pkgs }: f {
+        inherit system pkgs;
         logosSdk = logos-cpp-sdk.packages.${system}.default;
         logosQtSdk = logos-qt-sdk.packages.${system}.default;
         logosProtocol = logos-protocol.packages.${system}.default;

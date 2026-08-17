@@ -5,7 +5,11 @@
 #include <QVariant>
 #include <QVariantList>
 #include <QJSValue>
+#include <QHash>
 #include <QMap>
+#include <QSet>
+#include <QStringList>
+#include <QPair>
 
 class LogosAPI;
 class QRemoteObjectNode;
@@ -44,13 +48,28 @@ public:
     explicit LogosQmlBridge(LogosAPI* api, QObject* parent = nullptr);
 
     // ── Backend (non-view) module calls via LogosAPI IPC ────────────────
+    //
+    // Synchronous: it must answer now, so it cannot wait for a module the way
+    // callModuleAsync() does. If the module is still starting it waits a short
+    // bounded time and then returns an error naming callModuleAsync — it does
+    // NOT sit in the transport's full acquire budget on the GUI thread, which
+    // is what a call issued from Component.onCompleted used to do.
+    //
+    // PREFER callModuleAsync() for anything a view's first paint depends on.
+    // A startup call is exactly the case this form handles worst.
     Q_INVOKABLE QString callModule(const QString& module,
                                    const QString& method,
                                    const QVariantList& args = QVariantList());
 
+    // Asynchronous, and the right tool during startup: a module that is not
+    // reachable yet is NOT an error here. The call is held and dispatched as
+    // soon as the module appears — including one installed mid-session by the
+    // package manager — and nothing blocks the GUI thread while it waits.
+    //
     // timeoutMs: if > 0, the callback is invoked with an error payload when
     // no reply arrives within that many milliseconds. Default 30000 (30s);
-    // pass 0 to disable.
+    // pass 0 to disable. That deadline now bounds the WAIT for the module as
+    // well as the call itself, so a module that never appears still answers.
     Q_INVOKABLE void callModuleAsync(const QString& module,
                                      const QString& method,
                                      const QVariantList& args,
@@ -128,8 +147,51 @@ public:
     //       }
     //   }
     //
-    // Returns true if the subscription succeeded.
+    // Component.onCompleted is the RIGHT place to call this even though the
+    // module is usually not reachable yet at that point: the subscription is
+    // accepted and armed as soon as the module appears — including a module
+    // installed mid-session by the package manager. Nothing blocks the GUI
+    // thread.
+    //
+    // ONE THING IT DOES NOT PROMISE: arming is not retroactive and the
+    // transports do not buffer. There is a brief window — between the module's
+    // socket appearing and its replica going Valid, whose length depends on the
+    // platform and the load — in which an emitted event reaches nobody. A
+    // module that fires a one-shot
+    // "ready" event synchronously inside its own init() can still be missed, by
+    // this path and by the blocking one it replaced alike. If a module's
+    // startup event matters, it must also expose a method the view can call
+    // after subscribing.
+    //
+    // Calling it twice for the same (module, event) is a no-op, so a view that
+    // re-runs Component.onCompleted on reload will not receive doubled events.
+    // The de-duplication is verified against the registry, not assumed, so a
+    // subscription that was dropped underneath the bridge is re-armed by a
+    // second call rather than silently swallowed.
+    //
+    // Returns true if the subscription was ACCEPTED — which is not the same as
+    // "is live right now". A module that is merely unreachable is still an
+    // acceptance: that is the whole point of this call. It returns false in
+    // five cases, all of them a fault in the request or in the bridge's own
+    // setup rather than a module that has yet to appear:
+    //   - no LogosAPI;
+    //   - an empty module or event name;
+    //   - a VIEW module (those emit through their typed replica; use
+    //     logos.module(name) and a Connections block instead);
+    //   - no client for the module — getClient() returned null, which means
+    //     LogosAPI could not build one at all, not that the module is down;
+    //   - the client refused the subscription (id 0). Defensive: the arguments
+    //     that make onEventWhenAvailable() refuse are all rejected above, so
+    //     this is unreachable today. It is documented because the two contracts
+    //     have to agree, and one of them changing is how they stop agreeing.
+    // Retrying any of these with the same arguments returns false again.
     Q_INVOKABLE bool onModuleEvent(const QString& moduleName, const QString& eventName);
+
+    // Diagnostics: "<module>::<event>" for every subscription made via
+    // onModuleEvent() that has been accepted but has not armed yet. Empty once
+    // every subscription is live. Exposed to QML so a view (or a test) can tell
+    // "waiting for the module" apart from "subscribed, module is just quiet".
+    Q_INVOKABLE QStringList pendingEventSubscriptions() const;
 
 signals:
     void viewModuleReadyChanged(const QString& moduleName, bool ready);
@@ -153,4 +215,15 @@ private:
     QMap<QString, LogosViewReplicaFactory*> m_factories;
     QMap<QString, QObject*> m_replicas;
     QMap<QString, QAbstractItemModelReplica*> m_modelReplicas;
+
+    // (module, event) -> subscription id already handed to the transport. QML
+    // re-runs Component.onCompleted on a view reload, and the layer below
+    // deliberately does not de-duplicate (two lp_subscribe calls to the same
+    // event are two real subscriptions), so the de-dupe belongs here.
+    //
+    // The id, not just the key, because this record can go stale: onModuleEvent
+    // checks it against LogosAPIClient::eventSubscriptionState() before
+    // short-circuiting, so a subscription that was dropped underneath us is
+    // re-armed instead of being swallowed as a duplicate.
+    QHash<QPair<QString, QString>, quint64> m_eventSubscriptions;
 };
