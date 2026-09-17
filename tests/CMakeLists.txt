@@ -10,7 +10,7 @@ target_link_libraries(test_logos_qml_bridge PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
 )
 
@@ -27,7 +27,7 @@ target_link_libraries(test_logos_qml_bridge_e2e PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
@@ -48,7 +48,7 @@ target_link_libraries(test_logos_qml_bridge_gui PRIVATE
     Qt6::Quick
     Qt6::Test
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
@@ -67,12 +67,33 @@ target_link_libraries(test_logos_qml_bridge_result PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
 
 add_test(NAME LogosQmlBridgeResultTests COMMAND test_logos_qml_bridge_result)
+
+# App-to-app intent surface: the frozen three symbols, the callback contract
+# (exactly once / always async / real JS objects), the responsibility boundary
+# on respond(), and the metaobject trust boundary. Null LogosAPI throughout —
+# no sockets, no ui-host, no packages.
+add_executable(test_logos_qml_bridge_intents
+    test_logos_qml_bridge_intents.cpp
+)
+
+target_link_libraries(test_logos_qml_bridge_intents PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Test
+    Qt6::Qml
+    Qt6::RemoteObjects
+    logos-qt-host::logos_qt_host
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)
+
+add_test(NAME LogosQmlBridgeIntentTests COMMAND test_logos_qml_bridge_intents)
 
 # Capability-handshake reproduction: un-pre-seeded target token + real
 # requestModule round-trip against a published capability_module provider.
@@ -86,12 +107,33 @@ target_link_libraries(test_logos_qml_bridge_handshake PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
 
 add_test(NAME LogosQmlBridgeHandshakeTests COMMAND test_logos_qml_bridge_handshake)
+
+# Per-plugin identity: a bridge built for an identity presents tokens from that
+# identity's ISOLATED store, so an undeclared backend costs a real
+# capability_module handshake and is refused — where a host-identity bridge
+# reached it with no handshake at all.
+add_executable(test_bridge_identity
+    test_bridge_identity.cpp
+)
+
+target_link_libraries(test_bridge_identity PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Test
+    Qt6::Qml
+    Qt6::RemoteObjects
+    logos-qt-host::logos_qt_host
+    logos-cpp-sdk::logos_headers
+    logos-protocol::logos_protocol
+)
+
+add_test(NAME BridgeIdentityTests COMMAND test_bridge_identity)
 
 # ── 2-process reproduction (cross-process boundary) ─────────────────────────
 # Two standalone executables (driven manually, not via ctest): the modules host
@@ -103,7 +145,7 @@ target_link_libraries(test_2proc_modules_host PRIVATE
     Qt6::Core
     Qt6::Network
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
@@ -115,7 +157,7 @@ target_link_libraries(test_2proc_bridge_driver PRIVATE
     Qt6::Network
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
@@ -134,7 +176,7 @@ target_link_libraries(test_logos_qml_bridge_deferred PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
@@ -158,7 +200,7 @@ target_link_libraries(test_logos_qml_bridge_calls PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
@@ -188,7 +230,7 @@ target_link_libraries(test_logos_qml_bridge_replay PRIVATE
     Qt6::Test
     Qt6::Qml
     Qt6::RemoteObjects
-    logos-qt-sdk::logos_qt_sdk
+    logos-qt-host::logos_qt_host
     logos-cpp-sdk::logos_headers
     logos-protocol::logos_protocol
 )
@@ -201,3 +243,57 @@ target_compile_definitions(test_logos_qml_bridge_replay PRIVATE
 add_dependencies(test_logos_qml_bridge_replay test_replica_factory_plugin)
 
 add_test(NAME LogosQmlBridgeReplayTests COMMAND test_logos_qml_bridge_replay)
+
+# ── Module teardown hook (ui-host) ──────────────────────────────────────────
+#
+# Three fixture plugins that differ ONLY in how they answer aboutToUnload(),
+# and one test that spawns the real ui-host on each through the real
+# ViewModuleHost. See test_unload_fixture.cpp for why they keep a journal.
+#
+# Built from one source with UNLOAD_MODE switching the behaviour, so the three
+# cannot drift into differing in anything else -- which is the whole basis for
+# comparing their journals against each other.
+foreach(_mode_name_pair "none:0" "finishes:1" "hangs:2")
+    string(REPLACE ":" ";" _pair ${_mode_name_pair})
+    list(GET _pair 0 _name)
+    list(GET _pair 1 _mode)
+    set(_tgt test_unload_fixture_${_name})
+    add_library(${_tgt} MODULE test_unload_fixture.cpp)
+    target_link_libraries(${_tgt} PRIVATE Qt6::Core)
+    target_compile_definitions(${_tgt} PRIVATE UNLOAD_MODE=${_mode})
+endforeach()
+
+add_executable(test_ui_host_unload test_ui_host_unload.cpp)
+
+target_link_libraries(test_ui_host_unload PRIVATE
+    logos_view_module_runtime
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+    Qt6::RemoteObjects
+    logos-qt-host::logos_qt_host
+    logos-cpp-sdk::logos_headers
+)
+
+target_compile_definitions(test_ui_host_unload PRIVATE
+    FIXTURE_PLUGIN_NONE="$<TARGET_FILE:test_unload_fixture_none>"
+    FIXTURE_PLUGIN_FINISHES="$<TARGET_FILE:test_unload_fixture_finishes>"
+    FIXTURE_PLUGIN_HANGS="$<TARGET_FILE:test_unload_fixture_hangs>"
+)
+
+add_dependencies(test_ui_host_unload
+    ui-host
+    test_unload_fixture_none
+    test_unload_fixture_finishes
+    test_unload_fixture_hangs
+)
+
+# ViewModuleHost::spawn() resolves the ui-host binary as a SIBLING of the
+# running executable (QCoreApplication::applicationDirPath()). That is the
+# production layout, and the test drives the production spawn path, so the test
+# binary has to live in bin/ beside it rather than in the tests dir.
+set_target_properties(test_ui_host_unload PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+add_test(NAME UiHostUnloadTests COMMAND test_ui_host_unload)
